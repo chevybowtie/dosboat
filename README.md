@@ -122,6 +122,32 @@ Once Bun is installed:
 - Build the app: `bun run build:linux`
 - Find the built app under `dist` with AppImage and unpacked variants
 
+### Linux build dependencies
+
+Building the Electron app compiles native modules (like `usb`) and requires system headers.
+
+**Debian/Ubuntu:**
+```bash
+sudo apt-get update && sudo apt-get install -y libudev-dev
+```
+
+**Fedora/RHEL (dnf):**
+```bash
+sudo dnf install -y systemd-devel
+```
+
+**Arch/Manjaro:**
+```bash
+sudo pacman -S --needed systemd
+```
+
+**openSUSE:**
+```bash
+sudo zypper install -y libudev-devel
+```
+
+If you are on another distro, install the equivalent `libudev` development package via your package manager.
+
 ## Running DOSBoat in Development Mode
 
 - Make sure you meet the [prerequisites](#prerequisites)
