@@ -128,22 +128,22 @@ Building the Electron app compiles native modules (like `usb`) and requires syst
 
 **Debian/Ubuntu:**
 ```bash
-sudo apt-get update && sudo apt-get install -y libudev-dev
+sudo apt-get update && sudo apt-get install -y libudev-dev rpm
 ```
 
 **Fedora/RHEL (dnf):**
 ```bash
-sudo dnf install -y systemd-devel
+sudo dnf install -y systemd-devel rpm-build
 ```
 
 **Arch/Manjaro:**
 ```bash
-sudo pacman -S --needed systemd
+sudo pacman -S --needed systemd rpm-tools
 ```
 
 **openSUSE:**
 ```bash
-sudo zypper install -y libudev-devel
+sudo zypper install -y libudev-devel rpm-build
 ```
 
 If you are on another distro, install the equivalent `libudev` development package via your package manager.
