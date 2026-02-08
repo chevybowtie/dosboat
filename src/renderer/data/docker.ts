@@ -37,10 +37,7 @@ export const DOCKER_DEFAULT_COMPOSE: ComposeConfig = {
             ],
             devices: [
                 "/dev/kvm",
-                "/dev/ttyS0:/dev/ttyS0",
-                "/dev/ttyS1:/dev/ttyS1",
-                "/dev/ttyUSB0:/dev/ttyUSB0",
-                "/dev/ttyUSB1:/dev/ttyUSB1",
+                // Serial port devices are added dynamically based on user configuration
             ],
         },
     },

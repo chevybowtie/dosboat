@@ -38,10 +38,7 @@ export const PODMAN_DEFAULT_COMPOSE: ComposeConfig = {
             devices: [
                 "/dev/kvm",
                 "/dev/bus/usb",
-                "/dev/ttyS0",
-                "/dev/ttyS1",
-                "/dev/ttyUSB0",
-                "/dev/ttyUSB1",
+                // Serial port devices are added dynamically based on user configuration
             ],
         },
     },

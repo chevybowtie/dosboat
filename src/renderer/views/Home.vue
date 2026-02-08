@@ -12,7 +12,7 @@
                 <div>
                     <div class="flex flex-row gap-2 items-center justify-center mb-6 *:m-0">
                         <h1 class="text-3xl">
-                            {{ FREEDOS_VERSIONS[compose?.services.freedos.environment.VERSION ?? "11"] ?? "Unknown" }}
+                            {{ FREEDOS_VERSIONS[compose?.services.freedos.environment.VERSION ?? "1.3"] ?? "Unknown" }}
                         </h1>
                         <p class="bg-purple-500 px-4 rounded-full text-lg font-semibold !m-0">
                             {{ capitalizeFirstLetter(winboat.containerMgr!.executableAlias) }}
