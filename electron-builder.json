@@ -1,6 +1,6 @@
 {
-    "appId": "com.teabox.winboat",
-    "productName": "WinBoat",
+    "appId": "app.dosboat.dosboat",
+    "productName": "DOSBoat",
     "directories": {
         "output": "dist"
     },
@@ -9,13 +9,13 @@
         "oneClick": false,
         "perMachine": false,
         "allowToChangeInstallationDirectory": true,
-        "shortcutName": "WinBoat"
+        "shortcutName": "DOSBoat"
     },
     "win": {
         "target": "nsis"
     },
     "linux": {
-        "icon": "icons/winboat_logo.svg",
+        "icon": "icons/dosboat_logo.svg",
         "target": ["appimage", "deb", "rpm", "tar.bz2"],
         "category": "Utility",
         "artifactName": "${name}-${version}-${arch}.${ext}"
