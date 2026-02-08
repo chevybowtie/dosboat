@@ -187,7 +187,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { Winboat } from "../lib/winboat";
+import { Dosboat } from "../lib/winboat";
 import { ContainerStatus } from "../lib/containers/common";
 import { type ComposeConfig } from "../../types";
 import { WINDOWS_VERSIONS } from "../lib/constants";
@@ -195,12 +195,12 @@ import { Icon } from "@iconify/vue";
 import { capitalizeFirstLetter } from "../utils/capitalize";
 import { openAnchorLink } from "../utils/openLink";
 
-const winboat = Winboat.getInstance();
+const winboat = Dosboat.getInstance();
 const compose = ref<ComposeConfig | null>(null);
 const wallpaper = ref("");
 
 onMounted(async () => {
-    compose.value = Winboat.readCompose(winboat.containerMgr!.composeFilePath);
+    compose.value = Dosboat.readCompose(winboat.containerMgr!.composeFilePath);
     wallpaper.value = compose.value?.services.windows.environment.VERSION.includes("11")
         ? "./img/wallpaper/win11.webp"
         : "./img/wallpaper/win10.webp";

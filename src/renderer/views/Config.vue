@@ -445,10 +445,10 @@
                 <Icon v-if="resetQuestionCounter < 3" icon="mdi:bomb" class="size-8"></Icon>
                 <x-throbber v-else class="size-8"></x-throbber>
 
-                <span v-if="resetQuestionCounter === 0">Reset Winboat & Remove VM</span>
+                <span v-if="resetQuestionCounter === 0">Reset Dosboat & Remove VM</span>
                 <span v-else-if="resetQuestionCounter === 1">Are you sure? This action cannot be undone.</span>
                 <span v-else-if="resetQuestionCounter === 2">One final check, are you ABSOLUTELY sure?</span>
-                <span v-else-if="resetQuestionCounter === 3">Resetting Winboat...</span>
+                <span v-else-if="resetQuestionCounter === 3">Resetting Dosboat...</span>
             </x-button>
         </div>
     </div>
@@ -458,12 +458,12 @@
 import ConfigCard from "../components/ConfigCard.vue";
 import { computed, onMounted, ref, watch, reactive } from "vue";
 import { computedAsync } from "@vueuse/core";
-import { Winboat } from "../lib/winboat";
+import { Dosboat } from "../lib/winboat";
 import { ContainerRuntimes, ContainerStatus } from "../lib/containers/common";
 import type { ComposeConfig } from "../../types";
 import { getSpecs } from "../lib/specs";
 import { Icon } from "@iconify/vue";
-import { MultiMonitorMode, RdpArg, WinboatConfig } from "../lib/config";
+import { MultiMonitorMode, RdpArg, DosboatConfig } from "../lib/config";
 import { USBManager, type PTSerializableDeviceInfo } from "../lib/usbmanager";
 import { type Device } from "usb";
 import {
@@ -508,8 +508,8 @@ let portMapper = ref<ComposePortMapper | null>(null);
 // ^ Has to be reactive for usbPassthroughDisabled computed to trigger.
 
 // For General
-const wbConfig = reactive(WinboatConfig.getInstance());
-const winboat = Winboat.getInstance();
+const wbConfig = reactive(DosboatConfig.getInstance());
+const winboat = Dosboat.getInstance();
 const usbManager = USBManager.getInstance();
 
 // Constants
@@ -525,7 +525,7 @@ onMounted(async () => {
  * so we can display them and track when a change has been made
  */
 async function assignValues() {
-    compose.value = Winboat.readCompose(winboat.containerMgr!.composeFilePath);
+    compose.value = Dosboat.readCompose(winboat.containerMgr!.composeFilePath);
     portMapper.value = new ComposePortMapper(compose.value);
 
     numCores.value = Number(compose.value.services.windows.environment.CPU_CORES);

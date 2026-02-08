@@ -824,7 +824,7 @@ import {
     PodmanSpecs,
     getContainerSpecs,
 } from "../lib/containers/common";
-import { WinboatConfig } from "../lib/config";
+import { DosboatConfig } from "../lib/config";
 
 const path: typeof import("path") = require("node:path");
 const electron: typeof import("electron") = require("electron").remote || require("@electron/remote");
@@ -1135,7 +1135,7 @@ function install() {
         container: containerRuntime.value, // Hardcdde for now
     };
 
-    const wbConfig = WinboatConfig.getInstance(); // Create winboat config.
+    const wbConfig = DosboatConfig.getInstance(); // Create winboat config.
     wbConfig.config.containerRuntime = containerRuntime.value; // Save which runtime to use.
 
     installManager = new InstallManager(installConfig);
