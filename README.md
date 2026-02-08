@@ -78,8 +78,46 @@ DOSBoat uses:
 
 ## Building DOSBoat
 
-- You need to have Bun installed on your system
+### Installing Bun
+
+DOSBoat uses [Bun](https://bun.sh) as its JavaScript runtime and package manager. If you don't have Bun installed, follow these steps:
+
+**Quick Install (Linux, macOS, WSL):**
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
+
+**Alternative Installation Methods:**
+
+- **Using npm:**
+  ```bash
+  npm install -g bun
+  ```
+
+- **Using Homebrew (macOS/Linux):**
+  ```bash
+  brew install oven-sh/bun/bun
+  ```
+
+- **Manual Installation:**
+  Download the appropriate binary from the [Bun releases page](https://github.com/oven-sh/bun/releases)
+
+**Verify Installation:**
+```bash
+bun --version
+```
+
+After installation, you may need to restart your terminal or run:
+```bash
+source ~/.bashrc  # or ~/.zshrc, depending on your shell
+```
+
+### Building the Application
+
+Once Bun is installed:
+
 - Clone the repo: `git clone https://github.com/chevybowtie/dosboat`
+- Navigate to the directory: `cd dosboat`
 - Install dependencies: `bun i`
 - Build the app: `bun run build:linux`
 - Find the built app under `dist` with AppImage and unpacked variants
@@ -87,8 +125,9 @@ DOSBoat uses:
 ## Running DOSBoat in Development Mode
 
 - Make sure you meet the [prerequisites](#prerequisites)
-- Additionally, for development you need to have Bun installed
+- Additionally, for development you need to have Bun installed (see [Installing Bun](#installing-bun))
 - Clone the repo: `git clone https://github.com/chevybowtie/dosboat`
+- Navigate to the directory: `cd dosboat`
 - Install dependencies: `bun i`
 - Run the app: `bun run dev`
 
