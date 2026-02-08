@@ -54,9 +54,9 @@ async function migrateComposePorts_Pre090(containerManager: ContainerManager): P
     const currentCompose = Dosboat.readCompose(containerManager.composeFilePath);
     const defaultCompose = containerManager.defaultCompose;
 
-    currentCompose.services.windows.ports = defaultCompose.services.windows.ports;
-    currentCompose.services.windows.image = defaultCompose.services.windows.image;
-    currentCompose.services.windows.environment["USER_PORTS"] = defaultCompose.services.windows.environment["USER_PORTS"];
+    currentCompose.services.freedos.ports = defaultCompose.services.freedos.ports;
+    currentCompose.services.freedos.image = defaultCompose.services.freedos.image;
+    currentCompose.services.freedos.environment["USER_PORTS"] = defaultCompose.services.freedos.environment["USER_PORTS"];
 
     containerManager.writeCompose(currentCompose);
 
