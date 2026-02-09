@@ -39,7 +39,7 @@ jobs:
                   cache-dependency-path: "guest_server/go.sum"
 
             - name: Install dependencies
-              run: bun install
+              run: bun ci
 
             - name: Build guest server
               run: bun run build:gs
