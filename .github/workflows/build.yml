@@ -50,9 +50,9 @@ jobs:
             - name: Verify build artifacts
               run: |
                   echo "Checking for build artifacts..."
-                  ls -lh build/
                   if [ ! -d "build" ]; then
                     echo "Error: build directory not found"
                     exit 1
                   fi
+                  ls -lh build/
                   echo "Build completed successfully!"
