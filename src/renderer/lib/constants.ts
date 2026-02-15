@@ -13,6 +13,13 @@ export const FREEDOS_VERSIONS = {
 
 export type FreeDOSVersionKey = keyof typeof FREEDOS_VERSIONS;
 
+export const SHARED_DRIVE_LETTERS = ["E", "F"] as const;
+export type SharedDriveLetter = (typeof SHARED_DRIVE_LETTERS)[number];
+export const SHARED_DRIVE_INDEX_BY_LETTER: Record<SharedDriveLetter, number> = {
+    E: 2,
+    F: 3,
+};
+
 // Ports
 export const GUEST_QMP_PORT = 7149;
 export const DEFAULT_HOST_QMP_PORT = 8149;
