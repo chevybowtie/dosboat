@@ -65,7 +65,7 @@ const defaultConfig: DosboatConfigObj = {
     advancedFeatures: false,
     disableAnimations: false,
     vncScale: 2,
-    sharedDriveLetter: "E",
+    sharedDriveLetter: "D",
     appsSortOrder: "name",
     containerRuntime: ContainerRuntimes.DOCKER,
     versionData: {
@@ -151,7 +151,7 @@ export class DosboatConfig {
             const configObj = configObjRaw as DosboatConfigObj;
 
             if (!SHARED_DRIVE_LETTERS.includes(configObj.sharedDriveLetter)) {
-                configObj.sharedDriveLetter = "E";
+                configObj.sharedDriveLetter = "D";
             }
 
             console.log("Successfully read the config file");

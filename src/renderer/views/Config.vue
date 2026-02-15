@@ -37,7 +37,7 @@
                 >
                     <template v-slot:desc>
                         If enabled, your selected folder will appear in FreeDOS as a shared drive
-                        (default <span class="font-mono bg-neutral-700 rounded-md px-1 py-0.5">E:</span>).
+                        (<span class="font-mono bg-neutral-700 rounded-md px-1 py-0.5">D:</span>). The CD-ROM will move to the next letter.
                     </template>
                 </ConfigCard>
 
@@ -66,7 +66,7 @@
                     v-if="shareFolder"
                     icon="mdi:drive-harddisk"
                     title="Shared Folder Drive Letter"
-                    desc="Select which drive letter FreeDOS uses for the shared folder."
+                    desc="Drive letter is fixed to avoid FreeDOS letter gaps."
                     type="dropdown"
                     :options="SHARED_DRIVE_LETTERS"
                     v-model:value="wbConfig.config.sharedDriveLetter"
@@ -389,7 +389,6 @@ const usbManager = USBManager.getInstance();
 
 // Constants
 const USB_BUS_PATH = "/dev/bus/usb:/dev/bus/usb";
-const QMP_ARGUMENT = "-qmp tcp:0.0.0.0:7149,server,wait=off"; // 7149 can remain hardcoded as it refers to a guest port
 
 function buildSharedDriveArg() {
     const index = SHARED_DRIVE_INDEX_BY_LETTER[wbConfig.config.sharedDriveLetter];
@@ -469,9 +468,10 @@ async function saveCompose() {
         compose.value!.services.freedos.environment.ARGUMENTS = "";
     }
 
+    // Strip both QMP and shared drive arguments (QMP is now in entrypoint.sh)
     compose.value!.services.freedos.environment.ARGUMENTS = stripSharedDriveArg(
         compose.value!.services.freedos.environment.ARGUMENTS,
-    );
+    ).replace(/\s*-qmp\s+tcp:0\.0\.0\.0:7149,server,wait=off/g, "").trim();
 
     if (shareFolder.value && sharedFolderPath.value) {
         compose.value!.services.freedos.environment.ARGUMENTS =
@@ -544,9 +544,7 @@ async function addRequiredComposeFieldsUSB() {
     if (!compose.value!.services.freedos.environment.ARGUMENTS) {
         compose.value!.services.freedos.environment.ARGUMENTS = "";
     }
-    if (!hasQmpArgument(compose)) {
-        compose.value!.services.freedos.environment.ARGUMENTS += `\n${QMP_ARGUMENT}`;
-    }
+    // QMP argument is now in entrypoint.sh, no longer needed in ARGUMENTS
 
     if (!compose.value!.services.freedos.environment.HOST_PORTS) {
         compose.value!.services.freedos.environment.HOST_PORTS = "";
@@ -585,14 +583,12 @@ const errors = computedAsync(async () => {
 
 const hasUsbVolume = (_compose: typeof compose) =>
     _compose.value?.services.freedos.volumes?.some(x => x.includes(USB_BUS_PATH));
-const hasQmpArgument = (_compose: typeof compose) =>
-    _compose.value?.services.freedos.environment.ARGUMENTS?.includes(QMP_ARGUMENT);
 const hasQmpPort = () => portMapper.value!.hasShortPortMapping(GUEST_QMP_PORT) ?? false;
 const hasHostPort = (_compose: typeof compose) =>
     _compose.value?.services.freedos.environment.HOST_PORTS?.includes(GUEST_QMP_PORT.toString());
 
 const usbPassthroughDisabled = computed(() => {
-    return !hasUsbVolume(compose) || !hasQmpArgument(compose) || !hasQmpPort() || !hasHostPort(compose);
+    return !hasUsbVolume(compose) || !hasQmpPort() || !hasHostPort(compose);
 });
 
 const saveButtonDisabled = computed(() => {
