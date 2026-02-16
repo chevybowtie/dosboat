@@ -12,6 +12,7 @@
         "dev": "bun scripts/dev-server.ts",
         "build:linux": "bun scripts/build.ts && electron-builder --linux",
         "test": "vitest run",
+        "test:bun": "vitest run",
         "build:gs": "./build-guest-server.sh"
     },
     "repository": "https://github.com/TibixDev/winboat",
@@ -21,6 +22,8 @@
         "email": "staff@winboat.app"
     },
     "devDependencies": {
+        "@testing-library/jest-dom": "^6.9.1",
+        "@testing-library/vue": "^8.1.0",
         "@types/node-fetch": "^2.6.13",
         "@types/turndown": "^5.0.6",
         "@vitejs/plugin-vue": "^6.0.4",
@@ -29,12 +32,16 @@
         "chokidar": "^5.0.0",
         "electron": "^40.2.1",
         "electron-builder": "^26.7.0",
+        "jsdom": "^28.1.0",
         "postcss": "^8.5.6",
         "prettier": "3.8.1",
         "tailwindcss": "^3.4.17",
+        "ts-node": "^10.9.2",
         "typescript": "~5.9.3",
         "vite": "^7.3.1",
         "vitest": "^2.1.9",
+        "@vitest/coverage-v8": "^1.0.0",
+        "c8": "^8.0.0",
         "vue-tsc": "^3.2.4"
     },
     "dependencies": {
