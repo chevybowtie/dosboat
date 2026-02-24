@@ -6,15 +6,15 @@
                 <div class="flex flex-col flex-none gap-2 justify-center items-center">
                     <div class="relative">
                         <img
-                            alt="Icon for current app"
                             v-if="currentAppForm.Icon"
+                            alt="Icon for current app"
                             :src="currentAppForm.Icon"
                             class="size-24"
                         />
                         <Icon v-else class="size-24 text-neutral-400" icon="mdi:image"></Icon>
                         <button
-                            @click="pickCustomAppIcon"
                             class="flex absolute top-0 left-0 flex-col gap-1 justify-center items-center w-full h-full rounded-xl opacity-0 backdrop-blur-sm transition duration-200 absoute bg-black/50 hover:opacity-100"
+                            @click="pickCustomAppIcon"
                         >
                             <Icon icon="mdi:pencil" class="size-10"></Icon>
                             <x-label>Change Icon</x-label>
@@ -27,8 +27,8 @@
                     <x-input
                         v-model="currentAppForm.Name"
                         class="!max-w-full"
-                        @input="(e: any) => (customAppName = e.target.value)"
                         type="text"
+                        @input="(e: any) => (customAppName = e.target.value)"
                     />
 
                     <!-- Path field -->
@@ -61,9 +61,9 @@
                     </p>
                 </div>
                 <div
-                    class="flex flex-row gap-2 items-center my-0 font-semibold text-red-500"
                     v-for="(error, k) of customAppAddErrors"
                     :key="k"
+                    class="flex flex-row gap-2 items-center my-0 font-semibold text-red-500"
                 >
                     <Icon icon="fluent:warning-32-filled" class="inline size-4"></Icon>
                     <p class="!my-0">{{ error }}</p>
@@ -83,12 +83,12 @@
                 </div>
             </template>
             <footer>
-                <x-button @click="cancelAddCustomApp" id="cancel-button">
+                <x-button id="cancel-button" @click="cancelAddCustomApp">
                     <x-label>Cancel</x-label>
                 </x-button>
                 <x-button
-                    toggled
                     id="add-button"
+                    toggled
                     :disabled="customAppAddErrors.length > 0 || (orginalAppForm?.Source === 'custom' && isSame)"
                     @click="saveApp"
                 >
@@ -118,13 +118,13 @@
                     <x-label class="qualifier">Add Custom</x-label>
                 </x-button>
                 <x-select
+                    :disabled="!winboat.isOnline.value"
                     @change="
                         (e: any) => {
                             sortBy = e.detail.newValue;
-                            WinboatConfig.getInstance().config.appsSortOrder = e.detail.newValue;
+                            DosboatConfig.getInstance().config.appsSortOrder = e.detail.newValue;
                         }
                     "
-                    :disabled="!winboat.isOnline.value"
                 >
                     <x-menu class="">
                         <x-menuitem value="name" :toggled="sortBy === 'name'">
@@ -144,9 +144,9 @@
                     </x-menu>
                 </x-select>
                 <x-select
-                    @change="(e: any) => (filterBy = e.detail.newValue)"
                     :disabled="!winboat.isOnline.value"
                     class="flex flex-row-reverse gap-1 items-center justify-center"
+                    @change="(e: any) => (filterBy = e.detail.newValue)"
                 >
                     <Icon icon="mdi:filter-outline" style="width: 17; height: 17"></Icon>
                     <x-menu class="">
@@ -157,7 +157,7 @@
                             </x-label>
                         </x-menuitem>
 
-                        <x-menuitem v-for="(label, value) in AllSources" :value="value">
+                        <x-menuitem v-for="(label, value) in AllSources" :key="value" :value="value">
                             <x-label>
                                 <span class="qualifier"> Filter: </span>
                                 {{ label }}
@@ -173,8 +173,8 @@
                     type="text"
                     maxlength="32"
                     :value="searchInput"
-                    @input="(e: any) => (searchInput = e.target.value)"
                     :disabled="!winboat.isOnline.value"
+                    @input="(e: any) => (searchInput = e.target.value)"
                 >
                     <x-icon href="#search"></x-icon>
                     <x-label>Search</x-label>
@@ -237,11 +237,11 @@
                             winboat.containerStatus.value === ContainerStatus.UNKNOWN
                         "
                     >
-                        The WinBoat Container is not running, please start it to view your apps list.
+                        The DOSBoat Container is not running, please start it to view your apps list.
                     </span>
                     <span v-else>
-                        The WinBoat Guest API is not running, please restart the container. If this problem persists,
-                        contact customer support.
+                        The DOSBoat App Manager is not available. This feature requires Windows-specific components that
+                        are not present in FreeDOS.
                     </span>
                 </h1>
             </div>
@@ -252,7 +252,7 @@
 <script setup lang="ts">
 import { Icon } from "@iconify/vue";
 import { computed, onMounted, ref, useTemplateRef, watch, nextTick } from "vue";
-import { Winboat } from "../lib/winboat";
+import { Dosboat } from "../lib/dosboat";
 import { ContainerStatus } from "../lib/containers/common";
 import { type WinApp } from "../../types";
 import WBContextMenu from "../components/WBContextMenu.vue";
@@ -260,11 +260,11 @@ import WBMenuItem from "../components/WBMenuItem.vue";
 import { AppIcons, DEFAULT_ICON } from "../data/appicons";
 import { debounce } from "../utils/debounce";
 import { Jimp, JimpMime } from "jimp";
-import { WinboatConfig } from "../lib/config";
+import { DosboatConfig } from "../lib/config";
 const nodeFetch: typeof import("node-fetch").default = require("node-fetch");
 const FormData: typeof import("form-data") = require("form-data");
 
-const winboat = Winboat.getInstance();
+const winboat = Dosboat.getInstance();
 const apps = ref<WinApp[]>([]);
 const searchInput = ref("");
 const sortBy = ref("");
@@ -322,11 +322,11 @@ const computedApps = computed(() => {
 });
 
 onMounted(async () => {
-    sortBy.value = WinboatConfig.getInstance().config.appsSortOrder;
+    sortBy.value = DosboatConfig.getInstance().config.appsSortOrder;
 
     await refreshApps();
 
-    watch(winboat.isOnline, async (newVal, _) => {
+    watch(winboat.isOnline, async newVal => {
         if (newVal) {
             await refreshApps();
             console.log("Apps list: ", apps.value);

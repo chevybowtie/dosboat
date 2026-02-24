@@ -1,7 +1,7 @@
 import { type Device } from "usb";
 import { type Ref, ref, watch } from "vue";
-import { logger, Winboat } from "./winboat";
-import { WinboatConfig } from "./config";
+import { logger, Dosboat } from "./dosboat";
+import { DosboatConfig } from "./config";
 import { assert } from "@vueuse/core";
 
 const { usb, getDeviceList }: typeof import("usb") = require("usb");
@@ -26,6 +26,19 @@ export type PTSerializableDeviceInfo = {
     productId: number;
 } & DeviceStrings;
 
+export type PTDeviceDiagnostics = {
+    // Whether the device is attached in the guest VM
+    inGuest: boolean;
+    // Full QEMU device tree output
+    qtreeFull: string;
+    // Filtered qtree lines containing device info
+    qtreeDeviceLines: string[];
+    // Recent lines from qmp.log
+    qmpLogTail: string;
+    // Recent lines from dosboat.log
+    dosboatLogTail: string;
+};
+
 type VidPidHex = {
     // USB Vendor ID in hex
     vendorIdHex: string;
@@ -39,13 +52,13 @@ export class USBManager {
     devices: Ref<Device[]> = ref([]);
     // Current list of passed-through USB devices
     ptDevices: Ref<PTSerializableDeviceInfo[]> = ref([]);
-    // ^^ To be kept in sync with WinboatConfig.config.passedThroughDevices
+    // ^^ To be kept in sync with DosboatConfig.config.passedThroughDevices
 
     readonly #linuxDeviceDatabase: LinuxDeviceDatabase = {};
     readonly #deviceStringCache: Map<string, DeviceStrings> = new Map<string, DeviceStrings>();
     readonly #mtpDeviceCache: Map<string, boolean> = new Map<string, boolean>();
-    readonly #winboat: Winboat = Winboat.getInstance();
-    readonly #wbConfig: WinboatConfig = WinboatConfig.getInstance();
+    readonly #winboat: Dosboat = Dosboat.getInstance();
+    readonly #wbConfig: DosboatConfig = DosboatConfig.getInstance();
 
     static getInstance() {
         USBManager.instance ??= new USBManager();
@@ -359,14 +372,20 @@ export class USBManager {
     }
 
     async #QMPCheckIfDeviceExists(vendorId: number, productId: number): Promise<boolean> {
+        // Check if QMP is available
+        if (!this.#winboat.qmpMgr) {
+            logger.info(`QMP not available yet, skipping device existence check for ${vendorId}:${productId}`);
+            return false;
+        }
+
         let response = null;
         try {
-            response = await this.#winboat.qmpMgr!.executeCommand("human-monitor-command", {
+            response = await this.#winboat.qmpMgr.executeCommand("human-monitor-command", {
                 "command-line": "info qtree",
             });
             assert("result" in response);
 
-            // @ts-ignore property "result" already exists due to assert
+            // @ts-expect-error QMP response shape validated by assert above
             return response.return.includes(`usb-host, id "${vendorId}:${productId}"`);
         } catch (e) {
             logger.error(`There was an error checking whether USB device '${vendorId}:${productId}' exists`);
@@ -378,6 +397,14 @@ export class USBManager {
 
     // TODO: handle hostaddr/hostbus in case of duplicate VID/PID
     async #QMPAddDevice(device: Device) {
+        // Check if QMP is available
+        if (!this.#winboat.qmpMgr) {
+            logger.info(
+                `QMP not available yet, will retry adding device ${device.deviceDescriptor.idVendor}:${device.deviceDescriptor.idProduct}`,
+            );
+            return;
+        }
+
         let response = null;
         const vendorid = device.deviceDescriptor.idVendor;
         const productid = device.deviceDescriptor.idProduct;
@@ -390,7 +417,7 @@ export class USBManager {
         }
 
         try {
-            response = await this.#winboat.qmpMgr!.executeCommand("device_add", {
+            response = await this.#winboat.qmpMgr.executeCommand("device_add", {
                 driver: "usb-host",
                 id: `${vendorid}:${productid}`, // TODO: get rid of this when we support multiple devices of the same kind
                 vendorid,
@@ -408,9 +435,15 @@ export class USBManager {
     }
 
     async #QMPRemoveDevice(vendorId: number, productId: number) {
+        // Check if QMP is available
+        if (!this.#winboat.qmpMgr) {
+            logger.info(`QMP not available yet, skipping device removal for ${vendorId}:${productId}`);
+            return;
+        }
+
         let response = null;
         try {
-            response = await this.#winboat.qmpMgr!.executeCommand("device_del", { id: `${vendorId}:${productId}` });
+            response = await this.#winboat.qmpMgr.executeCommand("device_del", { id: `${vendorId}:${productId}` });
             assert("result" in response);
         } catch (e) {
             logger.error(`There was an error removing USB device '${vendorId}:${productId}'`);
@@ -418,6 +451,78 @@ export class USBManager {
             logger.error(`QMP response: ${JSON.stringify(response)}`);
         }
         logger.info("QMPRemoveDevice", vendorId, productId);
+    }
+
+    /**
+     * Checks if a device is attached in the guest VM
+     * @param vendorId The vendor ID of the device
+     * @param productId The product ID of the device
+     * @returns A boolean indicating if the device is attached in the guest
+     */
+    async isDeviceInGuest(vendorId: number, productId: number): Promise<boolean> {
+        const diag = await this.getDeviceDiagnostics(vendorId, productId);
+        return diag.inGuest;
+    }
+
+    /**
+     * Gets diagnostic information for a USB device
+     * @param vendorId The vendor ID of the device
+     * @param productId The product ID of the device
+     * @returns An object containing diagnostic information
+     */
+    async getDeviceDiagnostics(vendorId: number, productId: number): Promise<PTDeviceDiagnostics> {
+        let qtreeFull = "QMP not available";
+        let qtreeDeviceLines: string[] = [];
+        let inGuest = false;
+
+        if (this.#winboat.qmpMgr && (await this.#winboat.qmpMgr.isAlive())) {
+            try {
+                const response = await this.#winboat.qmpMgr.executeCommand("human-monitor-command", {
+                    "command-line": "info qtree",
+                });
+                // @ts-expect-error QMP response can be string/array/object based on command
+                const qraw = response && ("return" in response ? response.return : response);
+                if (typeof qraw === "string") {
+                    qtreeFull = qraw;
+                } else if (Array.isArray(qraw)) {
+                    qtreeFull = qraw.join("\n");
+                } else {
+                    qtreeFull = JSON.stringify(qraw);
+                }
+
+                const vendorIdHex = vendorId.toString(16).padStart(4, "0");
+                const productIdHex = productId.toString(16).padStart(4, "0");
+                qtreeDeviceLines = qtreeFull
+                    .split("\n")
+                    .filter(
+                        (l: string) => l.includes("usb-host") || l.includes(vendorIdHex) || l.includes(productIdHex),
+                    );
+                inGuest = qtreeDeviceLines.some(l => /usb-host/.test(l));
+            } catch (e) {
+                qtreeFull = `Error getting qtree: ${String(e)}`;
+            }
+        }
+
+        let qmpLogTail = "qmp.log not found";
+        let dosboatLogTail = "dosboat.log not found";
+        const DOSBOAT_DIR = remote.app.getPath("userData");
+        try {
+            const qmpLogPath = path.join(DOSBOAT_DIR, "qmp.log");
+            if (fs.existsSync(qmpLogPath))
+                qmpLogTail = fs.readFileSync(qmpLogPath, "utf8").split("\n").slice(-120).join("\n");
+        } catch (e) {
+            qmpLogTail = `Error reading qmp.log: ${String(e)}`;
+        }
+
+        try {
+            const dosboatLogPath = path.join(DOSBOAT_DIR, "dosboat.log");
+            if (fs.existsSync(dosboatLogPath))
+                dosboatLogTail = fs.readFileSync(dosboatLogPath, "utf8").split("\n").slice(-120).join("\n");
+        } catch (e) {
+            dosboatLogTail = `Error reading dosboat.log: ${String(e)}`;
+        }
+
+        return { inGuest, qtreeFull, qtreeDeviceLines, qmpLogTail, dosboatLogTail };
     }
 }
 

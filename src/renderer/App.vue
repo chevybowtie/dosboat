@@ -1,8 +1,5 @@
 <template>
-    <main 
-        class="overflow-hidden relative w-screen h-screen"
-        :class="{ animationsDisabled: 'disable-animations' }"
-    >
+    <main class="overflow-hidden relative w-screen h-screen" :class="{ 'disable-animations': animationsDisabled }">
         <!-- Decoration -->
         <div
             class="gradient-ball absolute -z-10 left-0 bottom-0 translate-x-[-50%] translate-y-[50%] w-[90vw] aspect-square opacity-15 blob-anim"
@@ -19,14 +16,16 @@
 
         <!-- Titlebar -->
         <x-titlebar
+            class="backdrop-blur-xl bg-neutral-900/50"
             @minimize="handleMinimize()"
             @buttonclick="handleTitleBarEvent"
-            class="backdrop-blur-xl bg-neutral-900/50"
         >
-            <x-label>WinBoat</x-label>
+            <x-label>DOSBoat</x-label>
         </x-titlebar>
 
         <!-- Updater -->
+        <!-- Note: Guest Server updates are not applicable to FreeDOS - this dialog is disabled -->
+        <!--
         <dialog ref="updateDialog">
             <Icon class="text-indigo-400 size-12" icon="mdi:cloud-upload"></Icon>
             <template v-if="manualUpdateRequired">
@@ -89,6 +88,7 @@
                 </x-button>
             </footer>
         </dialog>
+        -->
 
         <!-- UI / SetupUI -->
         <div
@@ -96,6 +96,8 @@
             class="flex flex-row h-[calc(100vh-2rem)]"
         >
             <x-nav class="flex flex-col flex-none gap-0.5 w-72 backdrop-blur-xl bg-gray-500/10 backdrop-contrast-90">
+                <!-- Note: RDP session indicator not applicable to FreeDOS (uses VNC) -->
+                <!--
                 <div
                     v-if="winboat?.rdpConnected.value"
                     class="w-full bg-gradient-to-r from-indigo-500 via-indigo-400 to-blue-500 text-white !mt-0 py-1 shadow-md shadow-indigo-500/50 transition-all duration-300 hover:brightness-105 flex flex-row items-center justify-center gap-2"
@@ -103,6 +105,7 @@
                     <Icon class="size-5" icon="mdi:remote-desktop"></Icon>
                     <span class="font-semibold text-center"> RDP Session Active </span>
                 </div>
+                -->
                 <div class="flex flex-row gap-4 items-center p-4">
                     <img
                         class="w-16 rounded-full"
@@ -115,25 +118,27 @@
                     </div>
                 </div>
                 <RouterLink
-                    v-for="route of routes.filter(
-                        (r: RouteRecordRaw) => !['SetupUI', 'Loading', 'Migration'].includes(String(r.name)),
-                    )"
-                    :to="route.path"
+                    v-for="route of routes.filter((r: RouteRecordRaw) => {
+                        // Hide Apps tab unless dev flag is set
+                        if (r.name === 'Apps' && !isDev) return false;
+                        return !['SetupUI', 'Loading', 'Migration'].includes(String(r.name));
+                    })"
                     :key="route.path"
+                    :to="route.path"
                 >
                     <x-navitem>
-                        <Icon class="mr-4 w-5 h-5" :icon="(route.meta!.icon as string)" />
+                        <Icon class="mr-4 w-5 h-5" :icon="route.meta!.icon as string" />
                         <x-label>{{ route.name }}</x-label>
                     </x-navitem>
                 </RouterLink>
                 <div class="flex flex-col justify-end items-center p-4 h-full">
-                    <p class="text-xs text-neutral-500">WinBoat Beta v{{ appVer }} {{ isDev ? "Dev" : "Prod" }}</p>
+                    <p class="text-xs text-neutral-500">DOSBoat Beta v{{ appVer }} {{ isDev ? "Dev" : "Prod" }}</p>
                 </div>
             </x-nav>
             <div class="px-5 flex-grow max-h-[calc(100vh-2rem)] overflow-y-auto py-4">
                 <div class="flex flex-row gap-2 items-center my-6">
                     <Icon class="w-6 h-6 opacity-60" icon="icon-park-solid:toolkit"></Icon>
-                    <h1 class="my-0 text-2xl font-semibold opacity-60">WinBoat</h1>
+                    <h1 class="my-0 text-2xl font-semibold opacity-60">DOSBoat</h1>
                     <Icon class="w-6 h-6" icon="bitcoin-icons:caret-right-filled"></Icon>
                     <Icon class="w-6 h-6" :icon="useRoute().meta.icon as string"></Icon>
                     <h1 class="my-0 text-2xl font-semibold">
@@ -158,14 +163,16 @@
 import { RouteRecordRaw, RouterLink, useRoute, useRouter } from "vue-router";
 import { routes } from "./router";
 import { Icon } from "@iconify/vue";
-import { onMounted, ref, useTemplateRef, watch, reactive, computed } from "vue";
+import { onMounted, reactive, computed } from "vue";
 import { isInstalled } from "./lib/install";
-import { Winboat } from "./lib/winboat";
-import { openAnchorLink } from "./utils/openLink";
-import { WinboatConfig } from "./lib/config";
+import { Dosboat } from "./lib/dosboat";
+// Note: openAnchorLink only needed for guest server update dialog (WinBoat feature)
+// import { openAnchorLink } from "./utils/openLink";
+import { DosboatConfig } from "./lib/config";
 import { USBManager } from "./lib/usbmanager";
-import { CommonPorts, getActiveHostPort } from "./lib/containers/common";
-import { performAutoMigrations } from "./lib/migrate";
+// Note: CommonPorts and getActiveHostPort are only needed for guest server updates (WinBoat feature)
+// import { CommonPorts, getActiveHostPort } from "./lib/containers/common";
+import { performAutoMigrations, detectMigrationNeeded } from "./lib/migrate";
 const { BrowserWindow }: typeof import("@electron/remote") = require("@electron/remote");
 const os: typeof import("os") = require("node:os");
 
@@ -173,42 +180,52 @@ const $router = useRouter();
 const $route = useRoute();
 const appVer = import.meta.env.VITE_APP_VERSION;
 const isDev = import.meta.env.DEV;
-let winboat: Winboat | null;
-let wbConfig: WinboatConfig | null;
+let wbConfig: DosboatConfig | null;
 
-let updateTimeout: NodeJS.Timeout | null = null;
-const manualUpdateRequired = ref(false);
-const MANUAL_UPDATE_TIMEOUT = 60000; // 60 seconds
-const updateDialog = useTemplateRef("updateDialog");
-const novncURL = ref("");
+// Note: Guest server update variables not needed for FreeDOS
+// let updateTimeout: NodeJS.Timeout | null = null;
+// const manualUpdateRequired = ref(false);
+// const MANUAL_UPDATE_TIMEOUT = 60000; // 60 seconds
+// const updateDialog = useTemplateRef("updateDialog");
+// const novncURL = ref("");
 
 const animationsDisabled = computed(() => wbConfig?.config.disableAnimations);
 
 onMounted(async () => {
+    console.log("onMounted started");
     const winboatInstalled = await isInstalled();
+    console.log("isInstalled:", winboatInstalled);
 
     if (winboatInstalled) {
-        wbConfig = reactive(WinboatConfig.getInstance()); // Instantiate singleton class
-        winboat = Winboat.getInstance(); // Instantiate singleton class
+        console.log("Winboat is installed, proceeding");
+        wbConfig = reactive(DosboatConfig.getInstance()); // Instantiate singleton class
+        console.log("Config instance created");
+        Dosboat.getInstance(); // Instantiate singleton class
         USBManager.getInstance(); // Instantiate singleton class
 
         // Migrations
-        $router.push("/migration");
-        await performAutoMigrations();
+        if (detectMigrationNeeded()) {
+            $router.push("/migration");
+            await performAutoMigrations();
+        }
 
-        // After migrations, go to home
+        // Go to home
         $router.push("/home");
     } else {
         console.log("Not installed, redirecting to setup...");
         $router.push("/setup");
     }
 
+    // Note: Guest server update watching is not applicable to FreeDOS
+    /*
     // Watch for guest server updates and show dialog
     watch(
         () => winboat?.isUpdatingGuestServer.value,
         isUpdating => {
             if (isUpdating === true) {
-                novncURL.value = `http://127.0.0.1:${getActiveHostPort(winboat?.containerMgr!, CommonPorts.NOVNC)}`;
+                const vncScale = wbConfig.config.vncScale;
+                const resizeMode = vncScale > 1 ? 'scale' : 'off';
+                novncURL.value = `http://127.0.0.1:${getActiveHostPort(winboat?.containerMgr!, CommonPorts.NOVNC)}/vnc.html?autoconnect=true&resize=${resizeMode}`;
                 updateDialog.value!.showModal();
                 // Prepare the timeout to show manual update required after 45 seconds
                 updateTimeout = setTimeout(() => {
@@ -224,6 +241,7 @@ onMounted(async () => {
             }
         },
     );
+    */
 });
 
 function handleMinimize() {
@@ -310,6 +328,7 @@ dialog::backdrop {
         rgb(129 140 248) 50px
     );
     -webkit-mask-image: -webkit-gradient(linear, left 0%, left bottom, from(rgba(0, 0, 0, 1)), to(rgba(0, 0, 0, 0)));
+    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0));
 }
 
 /* Disable all animations when the setting is enabled */

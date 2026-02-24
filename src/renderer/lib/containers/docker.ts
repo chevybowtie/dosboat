@@ -2,7 +2,7 @@ import { ComposeConfig } from "../../../types";
 import { DOCKER_DEFAULT_COMPOSE } from "../../data/docker";
 import { capitalizeFirstLetter } from "../../utils/capitalize";
 import { ComposePortEntry } from "../../utils/port";
-import { WINBOAT_DIR } from "../constants";
+import { DOSBOAT_DIR } from "../constants";
 import {
     ComposeArguments,
     ComposeDirection,
@@ -26,7 +26,7 @@ export type DockerSpecs = {
 
 export class DockerContainer extends ContainerManager {
     defaultCompose = DOCKER_DEFAULT_COMPOSE;
-    composeFilePath = path.join(WINBOAT_DIR, "docker-compose.yml"); // TODO: If/when we support multiple VM's we need to put this in the constructor
+    composeFilePath = path.join(DOSBOAT_DIR, "docker-compose.yml"); // TODO: If/when we support multiple VM's we need to put this in the constructor
     executableAlias = "docker";
 
     cachedPortMappings: ComposePortEntry[] | null = null;
@@ -66,8 +66,7 @@ export class DockerContainer extends ContainerManager {
     async container(action: ContainerAction): Promise<void> {
         const args = ["container", action, this.containerName];
         try {
-            const { stdout } = await execFileAsync(this.executableAlias, args);
-            containerLogger.info(`Container action '${action}' response: '${stdout}'`);
+            containerLogger.info(`Container action '${action}' completed`);
         } catch (e) {
             containerLogger.error(`Failed to run container action '${stringifyExecFile(this.executableAlias, args)}'`);
             containerLogger.error(e);
@@ -82,12 +81,52 @@ export class DockerContainer extends ContainerManager {
         try {
             const { stdout } = await execFileAsync(this.executableAlias, args);
 
+            if (!stdout.trim()) {
+                containerLogger.warn("Docker port returned empty output; retrying...");
+                // Port mappings might not be ready yet; wait 500ms and retry once
+                await new Promise(resolve => setTimeout(resolve, 500));
+                const retryArgs = ["port", this.containerName];
+                const { stdout: retryStdout } = await execFileAsync(this.executableAlias, retryArgs).catch(() => ({
+                    stdout: "",
+                }));
+
+                if (!retryStdout.trim()) {
+                    containerLogger.warn("Docker port still empty after retry; using cached mappings");
+                    return this.cachedPortMappings ?? [];
+                }
+
+                // Process retry output
+                for (const line of retryStdout.trim().split("\n")) {
+                    if (!line.includes("->")) continue;
+                    const parts = line.split("->").map(part => part.trim());
+                    const hostPart = parts[1];
+                    const containerPart = parts[0];
+                    try {
+                        ret.push(new ComposePortEntry(`${hostPart}:${containerPart}`));
+                    } catch (parseError) {
+                        containerLogger.warn(`Skipping invalid port mapping line: '${line}'`, parseError);
+                    }
+                }
+
+                if (ret.length > 0) {
+                    this.cachedPortMappings = ret;
+                    containerLogger.info("Docker container active port mappings (from retry): ", JSON.stringify(ret));
+                    return ret;
+                }
+
+                return this.cachedPortMappings ?? [];
+            }
+
             for (const line of stdout.trim().split("\n")) {
+                if (!line.includes("->")) continue;
                 const parts = line.split("->").map(part => part.trim());
                 const hostPart = parts[1];
                 const containerPart = parts[0];
-
-                ret.push(new ComposePortEntry(`${hostPart}:${containerPart}`));
+                try {
+                    ret.push(new ComposePortEntry(`${hostPart}:${containerPart}`));
+                } catch (parseError) {
+                    containerLogger.warn(`Skipping invalid port mapping line: '${line}'`, parseError);
+                }
             }
         } catch (e) {
             containerLogger.error(`Failed to run container action '${stringifyExecFile(this.executableAlias, args)}'`);
@@ -96,7 +135,9 @@ export class DockerContainer extends ContainerManager {
         }
 
         containerLogger.info("Docker container active port mappings: ", JSON.stringify(ret));
-        this.cachedPortMappings = ret;
+        if (ret.length > 0) {
+            this.cachedPortMappings = ret;
+        }
         return ret;
     }
 
@@ -136,7 +177,7 @@ export class DockerContainer extends ContainerManager {
         const args = ["ps", "-a", "--filter", `name=${this.containerName}`, "--format", "{{.Names}}"];
         try {
             const { stdout: exists } = await execFileAsync(this.executableAlias, args);
-            return exists.includes("WinBoat");
+            return exists.includes("DOSBoat");
         } catch (e) {
             containerLogger.error(
                 `Failed to get container status, is ${capitalizeFirstLetter(this.executableAlias)} installed?`,
@@ -147,7 +188,7 @@ export class DockerContainer extends ContainerManager {
     }
 
     get containerName(): string {
-        return this.defaultCompose.services.windows.container_name; // TODO: investigate whether we should use the compose on disk
+        return this.defaultCompose.services.freedos.container_name; // TODO: investigate whether we should use the compose on disk
     }
 
     static override async _getSpecs(): Promise<DockerSpecs> {

@@ -1,29 +1,27 @@
 import { type InstallConfiguration } from "../../types";
-import { WINBOAT_DIR } from "./constants";
+import { DOSBOAT_DIR, SHARED_DRIVE_INDEX_BY_LETTER, FREEDOS_BASE_IMAGE_FILES } from "./constants";
 import { createLogger } from "../utils/log";
 import { createNanoEvents, type Emitter } from "nanoevents";
-import { Winboat } from "./winboat";
+import { Dosboat } from "./dosboat";
 import { ContainerManager } from "./containers/container";
-import { WinboatConfig } from "./config";
+import { DosboatConfig } from "./config";
 import { CommonPorts, createContainer, getActiveHostPort } from "./containers/common";
 
 const fs: typeof import("fs") = require("fs");
 const path: typeof import("path") = require("path");
 const nodeFetch: typeof import("node-fetch").default = require("node-fetch");
 const remote: typeof import("@electron/remote") = require("@electron/remote");
-const argon2: typeof import("argon2") = require("argon2");
-const logger = createLogger(path.join(WINBOAT_DIR, "install.log"));
+const logger = createLogger(path.join(DOSBOAT_DIR, "install.log"));
 
 export enum InstallStates {
     IDLE = "Preparing",
     CREATING_COMPOSE_FILE = "Creating Compose File",
-    CREATING_OEM = "Creating OEM Assets",
     STARTING_CONTAINER = "Starting Container",
     MONITORING_PREINSTALL = "Monitoring Preinstall",
-    INSTALLING_WINDOWS = "Installing Windows",
+    INSTALLING_FREEDOS = "Installing FreeDOS",
     COMPLETED = "Completed",
     INSTALL_ERROR = "Install Error",
-};
+}
 
 interface InstallEvents {
     stateChanged: (state: InstallStates) => void;
@@ -64,13 +62,23 @@ export class InstallManager {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+    buildSharedDriveArg() {
+        const letter = DosboatConfig.getInstance().config.sharedDriveLetter;
+        const index = SHARED_DRIVE_INDEX_BY_LETTER[letter];
+        return `-drive file=fat:rw:/shared,format=raw,if=ide,index=${index}`;
+    }
+
+    stripSharedDriveArg(args: string) {
+        return args.replace(/\s*-drive file=fat:rw:\/shared,format=raw,if=ide,index=\d+/g, "").trim();
+    }
+
     async createComposeFile() {
         this.changeState(InstallStates.CREATING_COMPOSE_FILE);
 
-        // Ensure the .winboat directory exists
-        if (!fs.existsSync(WINBOAT_DIR)) {
-            fs.mkdirSync(WINBOAT_DIR);
-            logger.info(`Created WinBoat directory: ${WINBOAT_DIR}`);
+        // Ensure the .dosboat directory exists
+        if (!fs.existsSync(DOSBOAT_DIR)) {
+            fs.mkdirSync(DOSBOAT_DIR);
+            logger.info(`Created DOSBoat directory: ${DOSBOAT_DIR}`);
         }
 
         // Ensure the installation directory exists
@@ -82,126 +90,115 @@ export class InstallManager {
         // Configure the compose file
         const composeContent = this.container.defaultCompose;
 
-        composeContent.services.windows.environment.RAM_SIZE = `${this.conf.ramGB}G`;
-        composeContent.services.windows.environment.CPU_CORES = `${this.conf.cpuCores}`;
-        composeContent.services.windows.environment.DISK_SIZE = `${this.conf.diskSpaceGB}G`;
-        composeContent.services.windows.environment.VERSION = this.conf.windowsVersion;
-        composeContent.services.windows.environment.LANGUAGE = this.conf.windowsLanguage;
-        composeContent.services.windows.environment.USERNAME = this.conf.username;
-        composeContent.services.windows.environment.PASSWORD = this.conf.password;
+        // Get app root path for resolving build context and image paths
+        const appPath = remote.app.getAppPath();
+        const isDev = !remote.app.isPackaged;
+        const appRoot = isDev
+            ? path.join(appPath, "..", "..") // In dev: getAppPath() returns .../src/renderer, go up to project root
+            : path.dirname(remote.process.resourcesPath); // In production: go to app root
+
+        composeContent.services.freedos.environment.RAM_SIZE = `${this.conf.ramGB}G`;
+        composeContent.services.freedos.environment.CPU_CORES = `${this.conf.cpuCores}`;
+        composeContent.services.freedos.environment.DISK_SIZE = `${this.conf.diskSpaceGB}G`;
+        composeContent.services.freedos.environment.VERSION = this.conf.freedosVersion;
+
+        // Update build context to use absolute path
+        if (composeContent.services.freedos.build) {
+            composeContent.services.freedos.build.context = path.join(appRoot, "build", "freedos-image");
+            logger.info(`Build context set to: ${composeContent.services.freedos.build.context}`);
+        }
+
+        // Update base image volume to use absolute path
+        const baseImageIdx = composeContent.services.freedos.volumes.findIndex(
+            vol => vol.includes("-base.qcow2") || vol.includes("/oem/base.qcow2"),
+        );
+        if (baseImageIdx !== -1) {
+            // Get the version-specific base image filename
+            const baseImageFile =
+                this.conf.freedosVersion !== "custom"
+                    ? FREEDOS_BASE_IMAGE_FILES[this.conf.freedosVersion]
+                    : "FD14-base.qcow2"; // Fallback for custom ISOs
+            const baseImagePath = path.join(appRoot, "images", baseImageFile);
+            composeContent.services.freedos.volumes[baseImageIdx] = `${baseImagePath}:/oem/base.qcow2:ro`;
+            logger.info(`Base image path set to: ${baseImagePath}`);
+        }
 
         // Boot image mapping
         if (this.conf.customIsoPath) {
-            composeContent.services.windows.volumes.push(`${this.conf.customIsoPath}:/boot.iso`);
+            composeContent.services.freedos.volumes.push(`${this.conf.customIsoPath}:/boot.iso`);
+            composeContent.services.freedos.environment.CUSTOM_ISO = "/boot.iso";
         }
 
         // Storage folder mapping
-        const storageFolderIdx = composeContent.services.windows.volumes.findIndex(vol => vol.includes("/storage"));
-        
+        const storageFolderIdx = composeContent.services.freedos.volumes.findIndex(vol => vol.includes("/storage"));
+
         if (storageFolderIdx === -1) {
             logger.warn("No /storage volume found in compose template, adding one...");
-            composeContent.services.windows.volumes.push(`${this.conf.installFolder}:/storage`);
+            composeContent.services.freedos.volumes.push(`${this.conf.installFolder}:/storage`);
         } else {
-            composeContent.services.windows.volumes[storageFolderIdx] = `${this.conf.installFolder}:/storage`;
+            composeContent.services.freedos.volumes[storageFolderIdx] = `${this.conf.installFolder}:/storage`;
         }
 
         // Shared folder mapping
-        const sharedFolderIdx = composeContent.services.windows.volumes.findIndex(vol => vol.includes("/shared"));
-        
+        const sharedFolderIdx = composeContent.services.freedos.volumes.findIndex(vol => vol.includes("/shared"));
+
         if (!this.conf.sharedFolderPath) {
             // Remove shared folder if not enabled
             if (sharedFolderIdx !== -1) {
-                composeContent.services.windows.volumes.splice(sharedFolderIdx, 1);
+                composeContent.services.freedos.volumes.splice(sharedFolderIdx, 1);
                 logger.info("Removed shared folder as per user configuration");
             }
         } else {
             // Add or update shared folder
             const volumeStr = `${this.conf.sharedFolderPath}:/shared`;
-            
+
             if (sharedFolderIdx === -1) {
-                composeContent.services.windows.volumes.push(volumeStr);
+                composeContent.services.freedos.volumes.push(volumeStr);
                 logger.info(`Added shared folder: ${this.conf.sharedFolderPath}`);
             } else {
-                composeContent.services.windows.volumes[sharedFolderIdx] = volumeStr;
+                composeContent.services.freedos.volumes[sharedFolderIdx] = volumeStr;
                 logger.info(`Updated shared folder to: ${this.conf.sharedFolderPath}`);
+            }
+        }
+
+        if (!composeContent.services.freedos.environment.ARGUMENTS) {
+            composeContent.services.freedos.environment.ARGUMENTS = "";
+        }
+
+        composeContent.services.freedos.environment.ARGUMENTS = this.stripSharedDriveArg(
+            composeContent.services.freedos.environment.ARGUMENTS,
+        );
+
+        if (this.conf.sharedFolderPath) {
+            composeContent.services.freedos.environment.ARGUMENTS =
+                `${composeContent.services.freedos.environment.ARGUMENTS} ${this.buildSharedDriveArg()}`.trim();
+        }
+
+        // Add serial port device mappings if configured
+        if (this.conf.serialPorts && this.conf.serialPorts.length > 0) {
+            // Add device mappings
+            for (const port of this.conf.serialPorts) {
+                const deviceMapping = `${port}:${port}`;
+                if (!composeContent.services.freedos.devices.includes(deviceMapping)) {
+                    composeContent.services.freedos.devices.push(deviceMapping);
+                }
+            }
+
+            // Add QEMU serial arguments
+            const serialArgs = this.conf.serialPorts
+                .map((port, index) => {
+                    const id = `hostserial${index}`;
+                    return `-chardev serial,id=${id},path=${port} -device isa-serial,chardev=${id}`;
+                })
+                .join(" ");
+
+            if (serialArgs) {
+                composeContent.services.freedos.environment.ARGUMENTS += ` ${serialArgs}`;
             }
         }
 
         // Write the compose file
         this.container.writeCompose(composeContent);
-    }
-
-    async createOEMAssets() {
-        this.changeState(InstallStates.CREATING_OEM);
-        logger.info("Creating OEM assets");
-
-        const oemPath = path.join(WINBOAT_DIR, "oem"); // Fixed the path separator
-
-        // Create OEM directory if it doesn’t exist
-        if (!fs.existsSync(oemPath)) {
-            fs.mkdirSync(oemPath, { recursive: true });
-            logger.info(`Created OEM directory: ${oemPath}`);
-        }
-
-        // Determine the source path based on whether the app is bundled
-        const appPath = remote.app.isPackaged
-            ? path.join(process.resourcesPath, "guest_server") // For packaged app
-            : path.join(remote.app.getAppPath(), "..", "..", "guest_server"); // For dev mode
-
-        logger.info(`Guest server source path: ${appPath}`);
-
-        // Check if the source directory exists
-        if (!fs.existsSync(appPath)) {
-            const error = new Error(`Guest server directory not found at: ${appPath}`);
-            logger.error(error.message);
-            throw error;
-        }
-
-        const copyRecursive = (src: string, dest: string) => {
-            const stats = fs.statSync(src);
-
-            if (stats.isDirectory()) {
-                // Create directory if it doesn't exist
-                if (!fs.existsSync(dest)) {
-                    fs.mkdirSync(dest, { recursive: true });
-                }
-
-                // Copy all contents
-                fs.readdirSync(src).forEach(entry => {
-                    const srcPath = path.join(src, entry);
-                    const destPath = path.join(dest, entry);
-                    copyRecursive(srcPath, destPath);
-                });
-
-                logger.info(`Copied directory ${src} to ${dest}`);
-            } else {
-                // Copy file
-                fs.copyFileSync(src, dest);
-                logger.info(`Copied file ${src} to ${dest}`);
-            }
-        };
-
-        // Copy all files from guest_server to oemPath
-        try {
-            fs.readdirSync(appPath).forEach(entry => {
-                const srcPath = path.join(appPath, entry);
-                const destPath = path.join(oemPath, entry);
-                copyRecursive(srcPath, destPath);
-            });
-            logger.info("OEM assets created successfully");
-        } catch (error) {
-            logger.error(`Failed to copy OEM assets: ${error}`);
-            throw error;
-        }
-
-        // Create password hash file in oemPath
-        try {
-            const hash = await argon2.hash(this.conf.password);
-            fs.writeFileSync(path.join(oemPath, "auth.hash"), hash, { encoding: "utf8" });
-        } catch (error) {
-            logger.error(`Failed to create password hash: ${error}`);
-            throw error;
-        }
     }
 
     async startContainer() {
@@ -258,51 +255,43 @@ export class InstallManager {
         }
     }
 
-    async monitorAPIHealth() {
-        this.changeState(InstallStates.INSTALLING_WINDOWS);
-        logger.info("Waiting for WinBoat Guest Server to wrap up installation...");
+    async monitorInstallation() {
+        this.changeState(InstallStates.INSTALLING_FREEDOS);
+        logger.info("FreeDOS is installing...");
 
-        let attempts = 0;
+        // FreeDOS installation is much faster than Windows (typically completes in under 10 seconds)
+        // Show progress messages as the seedfile is copied
+        const TOTAL_INSTALL_TIME_MS = 10000;
+        const stages = [
+            { delay: 0, message: "Setting up FreeDOS..." },
+            { delay: 3000, message: "Copying system files..." },
+            { delay: 6500, message: "Finalizing installation..." },
+        ];
 
-        while (true) {
-            const start = performance.now();
+        for (const stage of stages) {
+            await this.sleep(stage.delay);
+            this.setPreinstallMsg(stage.message);
+            logger.info(stage.message);
+        }
 
-            try {
-                const apiHostPort = getActiveHostPort(this.container, CommonPorts.API)!;
-                const res = await nodeFetch(`http://127.0.0.1:${apiHostPort}/health`, {
-                    signal: AbortSignal.timeout(5000),
-                });
+        // Complete the remaining wait time
+        const elapsedTime = stages[stages.length - 1].delay;
+        const remainingTime = TOTAL_INSTALL_TIME_MS - elapsedTime;
+        if (remainingTime > 0) {
+            await this.sleep(remainingTime);
+        }
 
-                if (res.status === 200) {
-                    logger.info("WinBoat Guest Server is up and healthy!");
-                    this.changeState(InstallStates.COMPLETED);
+        logger.info("FreeDOS installation completed!");
+        this.changeState(InstallStates.COMPLETED);
 
-                    const compose = Winboat.readCompose(this.container.composeFilePath);
-                    const filteredVolumes = compose.services.windows.volumes.filter(
-                        volume => !volume.endsWith("/boot.iso"),
-                    );
+        // Clean up custom ISO if it was used
+        const compose = Dosboat.readCompose(this.container.composeFilePath);
+        const filteredVolumes = compose.services.freedos.volumes.filter(volume => !volume.endsWith("/boot.iso"));
 
-                    if (compose.services.windows.volumes.length !== filteredVolumes.length) {
-                        compose.services.windows.volumes = filteredVolumes;
-                        this.container.writeCompose(compose);
-                    }
-
-                    return;
-                }
-
-                logger.log(`API request status: ${res.status}`);
-            } catch (error) {
-                // We can ignore the AbortError resulting from the timeout
-                if (!(error instanceof nodeFetch.AbortError)) {
-                    logger.error(error);
-                }
-            }
-
-            if (++attempts % 12 === 0) {
-                logger.info(`API not responding yet, still waiting after ${(attempts * 5) / 60} minutes...`);
-            }
-
-            await this.sleep(5000 - (performance.now() - start));
+        if (compose.services.freedos.volumes.length !== filteredVolumes.length) {
+            compose.services.freedos.volumes = filteredVolumes;
+            logger.info("Removed custom ISO from compose");
+            this.container.writeCompose(compose);
         }
     }
 
@@ -311,10 +300,9 @@ export class InstallManager {
 
         try {
             await this.createComposeFile();
-            await this.createOEMAssets();
             await this.startContainer();
             await this.monitorContainerPreinstall();
-            await this.monitorAPIHealth();
+            await this.monitorInstallation();
         } catch (e) {
             this.changeState(InstallStates.INSTALL_ERROR);
             logger.error("Errors encountered, could not complete the installation steps.");
@@ -328,8 +316,8 @@ export class InstallManager {
 }
 
 export async function isInstalled(): Promise<boolean> {
-    // Check if a winboat container exists
-    const config = WinboatConfig.readConfigObject(false);
+    // Check if a dosboat container exists
+    const config = DosboatConfig.readConfigObject(false);
 
     if (!config) return false;
 
